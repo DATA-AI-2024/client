@@ -1,7 +1,8 @@
 // ignore_for_file: library_private_types_in_public_api
 
-import 'package:daejeon_taxi/packages/index.dart';
-import 'package:daejeon_taxi/res/index.dart';
+import 'package:daejeon_taxi/res/taxi_state.dart';
+import 'package:flutter/foundation.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'app_state_provider.g.dart';
 

@@ -1,5 +1,6 @@
-import 'package:daejeon_taxi/packages/index.dart';
-import 'package:daejeon_taxi/presentation/index.dart';
+import 'package:daejeon_taxi/presentation/view/map_page.dart';
+import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class SplashPage extends StatefulWidget {
   const SplashPage({super.key});
@@ -11,7 +12,7 @@ class SplashPage extends StatefulWidget {
 class _SplashPageState extends State<SplashPage> {
   bool? _loadSuccess;
 
-  dynamic _status;
+  PermissionStatus? _status;
 
   @override
   void initState() {

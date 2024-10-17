@@ -1,9 +1,18 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:daejeon_taxi/domain/environment/app_state_provider.dart';
-import 'package:daejeon_taxi/packages/index.dart';
-import 'package:daejeon_taxi/res/index.dart';
-import 'package:daejeon_taxi/utils/index.dart';
+import 'package:daejeon_taxi/presentation/component/labeled_checkbox.dart';
+import 'package:daejeon_taxi/presentation/widget/x_map/x_map.dart';
+import 'package:daejeon_taxi/res/client_event.dart';
+import 'package:daejeon_taxi/res/consts.dart';
+import 'package:daejeon_taxi/res/taxi_state.dart';
+import 'package:daejeon_taxi/utils/extension/latlng.dart';
+import 'package:daejeon_taxi/utils/throttler.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_naver_map/flutter_naver_map.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:socket_io_client/socket_io_client.dart';
 
 enum MapMode {
@@ -22,20 +31,11 @@ class MapPage extends ConsumerStatefulWidget {
 
 class _MapPageState extends ConsumerState<MapPage> {
   // Start of map stuff
-  NaverMapController? _controller;
+  late final XMapController _controller;
 
-  /// 컨트롤러에서 지도 상 현재 위치를 받아오는 기능이 없어,
-  /// 가장 마지막으로 포착된 위치를 기록하는 용으로 사용
-  NLatLng? _lastLatLng;
+  bool isMapReady = false;
 
   final _reportThrottler = Throttler(throttleGapInMillis: 500);
-
-  final _stateThrottler = Throttler(throttleGapInMillis: 100);
-
-  Timer? _returnTimer;
-
-  /// 테스트용으로, 지도를 움직이면 그곳을 현재 위치로 지도에 표시하고 서버에 보고함
-  bool _shouldMockLocation = true;
 
   /// 서버에 위치를 실시간 보고
   bool _shouldReportLocation = true;
@@ -45,21 +45,24 @@ class _MapPageState extends ConsumerState<MapPage> {
   static const _markerMockId = 'mock';
 
   /// 서버에서 배차를 제안한 타겟, 거절 시 배차 풀에 재등록
-  NLatLng? _suggestedTarget;
+  LatLng? _suggestedTarget;
 
-  static const _targetMarkerId = 'target';
+  static const _baechaTargetOverlayId = 'target';
 
-  NAddableOverlay? _targetOverlay;
+  NAddableOverlay? _baechaTargetOverlay;
 
   /// in meters
   static const double _targetRadiusInMeters = 100;
 
-  NLatLng? _targetLocation;
+  LatLng? _targetLocation;
+
+  /// 현재 위치
+  LatLng? _currentLocation;
 
   /// 타겟 범위 내에 도착하여 픽업 가능 여부
-  bool? get _nearTarget => (_lastLatLng == null || _targetLocation == null)
+  bool? get _nearTarget => (_currentLocation == null || _targetLocation == null)
       ? null
-      : _lastLatLng!.distanceTo(_targetLocation!) <= _targetRadiusInMeters;
+      : _currentLocation!.distanceTo(_targetLocation!) <= _targetRadiusInMeters;
 
   // End of map stuff
 
@@ -71,21 +74,8 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   // End of socket stuff
 
-  void _cancelReturnToCurrentLocation() {
-    _returnTimer?.cancel();
-    _returnTimer = null;
-  }
-
-  void _returnToCurrentLocation() {
-    _returnTimer?.cancel();
-    _returnTimer = Timer(const Duration(seconds: 2), () async {
-      if (_controller == null) {
-        return;
-      }
-      _controller!.setLocationTrackingMode(NLocationTrackingMode.face);
-    });
-  }
-
+  // TODO: FIX
+  /*
   void _updateCurrentLocationMock(NCameraUpdateReason reason) {
     if (reason == NCameraUpdateReason.gesture) {
       // if (_mockMarker!=null) {
@@ -105,27 +95,20 @@ class _MapPageState extends ConsumerState<MapPage> {
       // ));
     }
   }
+  */
 
-  /// [reason]이 [null]일 경우 무조건 report
-  void _reportLocation([NCameraUpdateReason? reason]) {
+  void _reportLocation([NLatLng? location]) {
     _reportThrottler.run(() {
-      // 실제로 이동했거나, 테스트 중이어서 [_shouldMockLocation]이 켜져있을 때는
-      // 제스처로 인해 이동했을 때 위치를 서버에 보고함
-      final shouldReportLocation = reason == null ||
-          reason == NCameraUpdateReason.location ||
-          (_shouldMockLocation && reason == NCameraUpdateReason.gesture);
-      if (shouldReportLocation) {
-        if (_lastLatLng == null) {
-          return;
-        }
-
-        final location = {
-          'lat': _lastLatLng!.latitude,
-          'lng': _lastLatLng!.longitude,
-        };
-        _socket.emit(CLIENT_EVENT_UPDATE_LOCATION, jsonEncode(location));
-        // debugPrint('reported');
+      location ??= _controller.getCurrentLocation();
+      if (location == null) {
+        return;
       }
+
+      final locationJson = jsonEncode({
+        'lat': location!.latitude,
+        'lng': location!.longitude,
+      });
+      _socket.emit(CLIENT_EVENT_UPDATE_LOCATION, locationJson);
     });
   }
 
@@ -136,7 +119,7 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   void _onTargetSuggested(double lat, double lng) {
     setState(() {
-      _suggestedTarget = NLatLng(lat, lng);
+      // _suggestedTarget = NLatLng(lat, lng);
     });
   }
 
@@ -149,9 +132,32 @@ class _MapPageState extends ConsumerState<MapPage> {
     });
   }
 
+  /* 지도 관련 시작 */
+  Timer? _returnTimer;
+
+  void _cancelReturnToCurrentLocation() {
+    _returnTimer?.cancel();
+    _returnTimer = null;
+  }
+
+  void _reserveReturnToCurrentLocation() {
+    _returnTimer?.cancel();
+    _returnTimer = Timer(const Duration(seconds: 2), () async {
+      if (!_controller.shouldMockLocation) {
+        _controller.setLocationTrackingMode(NLocationTrackingMode.face);
+      }
+
+      _returnTimer = null;
+    });
+  }
+
+  /* 지도 관련 끝 */
+
   @override
   void initState() {
     super.initState();
+
+    _controller = XMapController();
 
     final socketOption = OptionBuilder().setTransports(['websocket']).build();
     if (widget.mode == MapMode.client) {
@@ -192,25 +198,47 @@ class _MapPageState extends ConsumerState<MapPage> {
             onPressed: () {},
           ),
         ));
-        final position = NLatLng(data['lat'], data['lng']);
-        _targetLocation = position;
-        if (_targetOverlay != null) {
-          if (_targetOverlay is NMarker) {
-            (_targetOverlay as NMarker).setPosition(position);
-          } else if (_targetOverlay is NCircleOverlay) {
-            (_targetOverlay as NCircleOverlay).setCenter(position);
-          } else {
-            // TODO: Consider other types?
-          }
-        } else {
-          _targetOverlay = NCircleOverlay(
-            id: _targetMarkerId,
-            center: position,
-            radius: _targetRadiusInMeters,
-            color: Colors.purpleAccent.withOpacity(0.3),
-          );
-          _controller?.addOverlay(_targetOverlay!);
+        NLatLng position = NLatLng(data['lat'], data['lng']);
+        // _targetLocation = position;
+        if (_baechaTargetOverlay != null) {
+          _controller.removeOverlay(_baechaTargetOverlay!);
         }
+        _baechaTargetOverlay = NCircleOverlay(
+          id: _baechaTargetOverlayId,
+          center: position,
+          radius: _targetRadiusInMeters,
+          color: Colors.purpleAccent.withOpacity(0.3),
+        );
+        Timer.periodic(
+          Duration(seconds: 1),
+          (timer) {
+            position =
+                NLatLng(position.latitude + 0.01, position.longitude + 0.01);
+            if (_baechaTargetOverlay is NMarker) {
+              (_baechaTargetOverlay as NMarker).setPosition(position);
+            } else if (_baechaTargetOverlay is NCircleOverlay) {
+              (_baechaTargetOverlay as NCircleOverlay).setCenter(position);
+            }
+          },
+        );
+        _controller.addOverlay(_baechaTargetOverlay!);
+        // if (_baechaTargetOverlay != null) {
+        //   if (_baechaTargetOverlay is NMarker) {
+        //     (_baechaTargetOverlay as NMarker).setPosition(position);
+        //   } else if (_baechaTargetOverlay is NCircleOverlay) {
+        //     (_baechaTargetOverlay as NCircleOverlay).setCenter(position);
+        //   } else {
+        //     // TODO: Consider other types?
+        //   }
+        // } else {
+        //   _baechaTargetOverlay = NCircleOverlay(
+        //     id: _targetMarkerId,
+        //     center: position,
+        //     radius: _targetRadiusInMeters,
+        //     color: Colors.purpleAccent.withOpacity(0.3),
+        //   );
+        //   _controller?.addOverlay(_baechaTargetOverlay!);
+        // }
       })
       ..on('hello', (data) {
         debugPrint('hello');
@@ -219,8 +247,6 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   @override
   void dispose() {
-    _controller?.dispose();
-    _controller = null;
     _socket.disconnect();
     _socket.dispose();
     super.dispose();
@@ -235,73 +261,50 @@ class _MapPageState extends ConsumerState<MapPage> {
       ),
       body: Stack(
         children: [
-          NaverMap(
-            options: const NaverMapViewOptions(),
-            onMapReady: (controller) {
-              _controller = controller;
-              controller.setLocationTrackingMode(NLocationTrackingMode.face);
-              final overlay = controller.getLocationOverlay();
-              overlay.setIsVisible(true);
+          XMap(
+            controller: _controller,
+            onMapReady: () {
+              setState(() {
+                isMapReady = true;
+              });
             },
-            onCameraChange: (reason, animated) {
-              // debugPrint('change $reason $animated ${DateTime.now()}');
-
-              if (_controller == null) {
-                return;
+            defaultLocationTrackingMode: NLocationTrackingMode.face,
+            onLocationChange: (location) {
+              if (_shouldReportLocation) {
+                _reportLocation(location);
               }
-
-              // 실제 이동 시 현재 위치 기록
-              // 지도 상 실제 위치를 받아오는 함수를 못 찾아 [_lastLatLng]를 대신 사용
-              final shouldRecordLocation =
-                  reason == NCameraUpdateReason.location ||
-                      (reason == NCameraUpdateReason.gesture &&
-                          _shouldMockLocation);
-              if (shouldRecordLocation) {
-                _lastLatLng = _controller!.nowCameraPosition.target;
-              }
-
-              // 타겟 위치 범위 내에 도착 시
-              debugPrint('running setState: ${_nearTarget}');
-              _stateThrottler.run(() => setState(() {}));
-
-              if (!_shouldMockLocation) {
-                _cancelReturnToCurrentLocation();
-              } else {
-                // 테스트용으로 현재 위치를 화면이 움직인 곳으로 설정함
-                _updateCurrentLocationMock(reason);
-              }
-              _reportLocation(reason);
+            },
+            onCameraChange: () {
+              _cancelReturnToCurrentLocation();
             },
             onCameraIdle: () {
-              debugPrint('idle ${DateTime.now()}');
-              if (!_shouldMockLocation) {
-                _returnToCurrentLocation();
-              }
+              _reserveReturnToCurrentLocation();
             },
           ),
-          Container(
-            color: Colors.white,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _LabeledCheckbox(
-                  label: 'Mock location',
-                  value: _shouldMockLocation,
-                  onChanged: (value) => setState(() {
-                    _shouldMockLocation = value;
-                  }),
-                ),
-                _LabeledCheckbox(
-                  label: 'Report location',
-                  value: _shouldReportLocation,
-                  onChanged: (value) => setState(() {
-                    _shouldReportLocation = value;
-                  }),
-                ),
-              ],
+          if (isMapReady)
+            Container(
+              color: Colors.white,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  LabeledCheckbox(
+                    label: 'Mock location',
+                    value: _controller.getShouldMockLocation(),
+                    onChanged: (value) => setState(() {
+                      _controller.setShouldMockLocation(value);
+                    }),
+                  ),
+                  LabeledCheckbox(
+                    label: 'Report location',
+                    value: _shouldReportLocation,
+                    onChanged: (value) => setState(() {
+                      _shouldReportLocation = value;
+                    }),
+                  ),
+                ],
+              ),
             ),
-          ),
           Positioned(
             top: 0,
             right: 0,
@@ -366,45 +369,6 @@ class _MapPageState extends ConsumerState<MapPage> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _LabeledCheckbox extends StatelessWidget {
-  final String label;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  const _LabeledCheckbox({
-    super.key,
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => onChanged(!value),
-      child: Padding(
-        padding: const EdgeInsets.only(right: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Checkbox(
-              visualDensity: VisualDensity.compact,
-              value: value,
-              onChanged: (value) {
-                if (value != null) {
-                  onChanged(value);
-                }
-              },
-            ),
-            Text(label),
-          ],
-        ),
       ),
     );
   }

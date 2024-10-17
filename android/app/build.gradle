@@ -26,7 +26,9 @@ if (flutterVersionName == null) {
 android {
     namespace = "com.kykint.daejeon_taxi"
     compileSdk = 34
-    ndkVersion = flutter.ndkVersion
+    // TODO: kykint: Uncomment later
+//    ndkVersion = flutter.ndkVersion
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
