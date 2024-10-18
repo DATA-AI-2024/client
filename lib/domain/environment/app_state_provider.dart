@@ -22,7 +22,7 @@ class AppState extends _$AppState {
 class _AppState {
   final TaxiState taxiState;
 
-  const _AppState({this.taxiState = TaxiState.WAITING});
+  const _AppState({this.taxiState = TaxiState.idle});
 
   _AppState copyWith({TaxiState? taxiState}) {
     return _AppState(taxiState: taxiState ?? this.taxiState);

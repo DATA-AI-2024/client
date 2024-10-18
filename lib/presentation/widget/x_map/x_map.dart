@@ -13,7 +13,14 @@ export './src/x_map_controller.dart';
 
 typedef LocationChangeCallback = void Function(NLatLng location);
 
+enum XMapMode {
+  /// Default and only supported on Android/iOS
+  naver,
+  fleaflet,
+}
+
 class XMap extends StatefulWidget {
+  final XMapMode? mode;
   final XMapController? controller;
   final VoidCallback? onMapReady;
 
@@ -28,6 +35,7 @@ class XMap extends StatefulWidget {
 
   const XMap({
     super.key,
+    this.mode,
     this.controller,
     this.onMapReady,
     this.onLocationChange,
@@ -74,7 +82,7 @@ class _XMapState extends State<XMap> {
       create: (context) => _controller,
       child: Stack(
         children: [
-          Platform.isAndroid || Platform.isIOS
+          widget.mode == XMapMode.naver || Platform.isAndroid || Platform.isIOS
               ? InnerNaverMap(
                   controller: _controller,
                   onMapReady: widget.onMapReady,

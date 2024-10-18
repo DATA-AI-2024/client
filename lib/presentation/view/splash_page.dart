@@ -73,21 +73,10 @@ class _SplashPageState extends State<SplashPage> {
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                            builder: (context) =>
-                                const MapPage(MapMode.client)),
+                            builder: (context) => const MapPage()),
                       );
                     },
                     child: const Text('Client'),
-                  ),
-                  ElevatedButton(
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (context) =>
-                                const MapPage(MapMode.dashboard)),
-                      );
-                    },
-                    child: const Text('Dashboard'),
                   ),
                 ],
               ),

@@ -15,15 +15,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:socket_io_client/socket_io_client.dart';
 
-enum MapMode {
-  client,
-  dashboard,
-}
-
 class MapPage extends ConsumerStatefulWidget {
-  final MapMode mode;
-
-  const MapPage(this.mode, {super.key});
+  const MapPage({super.key});
 
   @override
   ConsumerState<MapPage> createState() => _MapPageState();
@@ -35,7 +28,8 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   bool isMapReady = false;
 
-  final _reportThrottler = Throttler(throttleGapInMillis: 500);
+  final _reportThrottler =
+      Throttler(throttleGapInMillis: 500, runLastAttemptedAction: true);
 
   /// 서버에 위치를 실시간 보고
   bool _shouldReportLocation = true;
@@ -44,15 +38,20 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   static const _markerMockId = 'mock';
 
+  NLatLng? _baechaTarget;
+
   /// 서버에서 배차를 제안한 타겟, 거절 시 배차 풀에 재등록
   LatLng? _suggestedTarget;
 
   static const _baechaTargetOverlayId = 'target';
 
   NAddableOverlay? _baechaTargetOverlay;
+  static const _baechaLineId = 'baecha_line';
+
+  NPolylineOverlay? _baechaLine;
 
   /// in meters
-  static const double _targetRadiusInMeters = 100;
+  static const double _baechaTargetRadiusInMeters = 100;
 
   LatLng? _targetLocation;
 
@@ -62,7 +61,73 @@ class _MapPageState extends ConsumerState<MapPage> {
   /// 타겟 범위 내에 도착하여 픽업 가능 여부
   bool? get _nearTarget => (_currentLocation == null || _targetLocation == null)
       ? null
-      : _currentLocation!.distanceTo(_targetLocation!) <= _targetRadiusInMeters;
+      : _currentLocation!.distanceTo(_targetLocation!) <=
+          _baechaTargetRadiusInMeters;
+
+  void _reportLocation([NLatLng? location]) {
+    _reportThrottler.run(() {
+      location ??= _controller.getCurrentLocation();
+      if (location == null) {
+        return;
+      }
+
+      final locationJson = jsonEncode({
+        'lat': location!.latitude,
+        'lng': location!.longitude,
+      });
+      _socket.emit(CLIENT_EVENT_UPDATE_LOCATION, locationJson);
+    });
+  }
+
+  /// 택시 대기 중, 운행 중 상태 보고
+  void _forceSetState(TaxiState state) {
+    _socket.emit('state', state.name);
+  }
+
+  void _onTargetSuggested(double lat, double lng) {
+    setState(() {
+      // _suggestedTarget = NLatLng(lat, lng);
+    });
+  }
+
+  void _rejectTarget() {
+    assert(_suggestedTarget != null);
+
+    _socket.emit('reject');
+    setState(() {
+      _suggestedTarget = null;
+    });
+  }
+
+  void _updateBaechaLine() {
+    if (_controller.getCurrentLocation() == null) return;
+
+    final lineCoords = [_controller.getCurrentLocation()!, _baechaTarget!];
+    if (_baechaLine != null) {
+      _baechaLine!.setCoords(lineCoords);
+    } else {
+      _controller
+          .addOverlay(NPolylineOverlay(id: _baechaLineId, coords: lineCoords));
+    }
+  }
+
+  Timer? _returnTimer;
+
+  void _cancelReturnToCurrentLocation() {
+    _returnTimer?.cancel();
+    _returnTimer = null;
+  }
+
+  void _reserveReturnToCurrentLocation() {
+    _returnTimer?.cancel();
+    _returnTimer = Timer(const Duration(seconds: 2), () async {
+      if (!_controller.shouldMockLocation) {
+        _controller.setLocationTrackingMode(NLocationTrackingMode.face);
+      }
+
+      _returnTimer = null;
+    });
+  }
 
   // End of map stuff
 
@@ -97,62 +162,6 @@ class _MapPageState extends ConsumerState<MapPage> {
   }
   */
 
-  void _reportLocation([NLatLng? location]) {
-    _reportThrottler.run(() {
-      location ??= _controller.getCurrentLocation();
-      if (location == null) {
-        return;
-      }
-
-      final locationJson = jsonEncode({
-        'lat': location!.latitude,
-        'lng': location!.longitude,
-      });
-      _socket.emit(CLIENT_EVENT_UPDATE_LOCATION, locationJson);
-    });
-  }
-
-  /// 택시 대기 중, 운행 중 상태 보고
-  void _reportState(TaxiState state) {
-    _socket.emit('state', state.name);
-  }
-
-  void _onTargetSuggested(double lat, double lng) {
-    setState(() {
-      // _suggestedTarget = NLatLng(lat, lng);
-    });
-  }
-
-  void _rejectTarget() {
-    assert(_suggestedTarget != null);
-
-    _socket.emit('reject');
-    setState(() {
-      _suggestedTarget = null;
-    });
-  }
-
-  /* 지도 관련 시작 */
-  Timer? _returnTimer;
-
-  void _cancelReturnToCurrentLocation() {
-    _returnTimer?.cancel();
-    _returnTimer = null;
-  }
-
-  void _reserveReturnToCurrentLocation() {
-    _returnTimer?.cancel();
-    _returnTimer = Timer(const Duration(seconds: 2), () async {
-      if (!_controller.shouldMockLocation) {
-        _controller.setLocationTrackingMode(NLocationTrackingMode.face);
-      }
-
-      _returnTimer = null;
-    });
-  }
-
-  /* 지도 관련 끝 */
-
   @override
   void initState() {
     super.initState();
@@ -160,11 +169,7 @@ class _MapPageState extends ConsumerState<MapPage> {
     _controller = XMapController();
 
     final socketOption = OptionBuilder().setTransports(['websocket']).build();
-    if (widget.mode == MapMode.client) {
       _socket = io(WS_CLIENT, socketOption);
-    } else {
-      _socket = io(WS_DASHBOARD, socketOption);
-    }
 
     _socket.onConnect((data) {
       _reportLocation();
@@ -191,6 +196,7 @@ class _MapPageState extends ConsumerState<MapPage> {
         if (data == null) return;
 
         debugPrint('received baecha $data');
+
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: const Text('배차가 완료되었습니다.'),
           action: SnackBarAction(
@@ -198,47 +204,42 @@ class _MapPageState extends ConsumerState<MapPage> {
             onPressed: () {},
           ),
         ));
-        NLatLng position = NLatLng(data['lat'], data['lng']);
-        // _targetLocation = position;
+
+        ref.read(appStateProvider.notifier).setTaxiState(TaxiState.running);
+
+        _baechaTarget = NLatLng(data['lat'], data['lng']);
+
+        // 배차된 클러스터에 원 오버레이 표시
         if (_baechaTargetOverlay != null) {
-          _controller.removeOverlay(_baechaTargetOverlay!);
+          // 배차된 클러스터 오버레이 타입은 Marker/Circle 중 하나라고 가정
+          if (_baechaTargetOverlay is NMarker) {
+            (_baechaTargetOverlay as NMarker).setPosition(_baechaTarget!);
+          } else if (_baechaTargetOverlay is NCircleOverlay) {
+            (_baechaTargetOverlay as NCircleOverlay).setCenter(_baechaTarget!);
+          }
+        } else {
+          _baechaTargetOverlay = NCircleOverlay(
+            id: _baechaTargetOverlayId,
+            center: _baechaTarget!,
+            radius: _baechaTargetRadiusInMeters,
+            color: Colors.purpleAccent.withOpacity(0.3),
+          );
         }
-        _baechaTargetOverlay = NCircleOverlay(
-          id: _baechaTargetOverlayId,
-          center: position,
-          radius: _targetRadiusInMeters,
-          color: Colors.purpleAccent.withOpacity(0.3),
-        );
-        Timer.periodic(
-          Duration(seconds: 1),
-          (timer) {
-            position =
-                NLatLng(position.latitude + 0.01, position.longitude + 0.01);
-            if (_baechaTargetOverlay is NMarker) {
-              (_baechaTargetOverlay as NMarker).setPosition(position);
-            } else if (_baechaTargetOverlay is NCircleOverlay) {
-              (_baechaTargetOverlay as NCircleOverlay).setCenter(position);
-            }
-          },
-        );
         _controller.addOverlay(_baechaTargetOverlay!);
-        // if (_baechaTargetOverlay != null) {
-        //   if (_baechaTargetOverlay is NMarker) {
-        //     (_baechaTargetOverlay as NMarker).setPosition(position);
-        //   } else if (_baechaTargetOverlay is NCircleOverlay) {
-        //     (_baechaTargetOverlay as NCircleOverlay).setCenter(position);
-        //   } else {
-        //     // TODO: Consider other types?
-        //   }
-        // } else {
-        //   _baechaTargetOverlay = NCircleOverlay(
-        //     id: _targetMarkerId,
-        //     center: position,
-        //     radius: _targetRadiusInMeters,
-        //     color: Colors.purpleAccent.withOpacity(0.3),
-        //   );
-        //   _controller?.addOverlay(_baechaTargetOverlay!);
-        // }
+
+        // 배차된 클러스터까지의 직선거리 오버레이 표시
+        if (_controller.getCurrentLocation() != null) {
+          final lineCoords = [
+            _controller.getCurrentLocation()!,
+            _baechaTarget!
+          ];
+          if (_baechaLine != null) {
+            _baechaLine!.setCoords(lineCoords);
+          } else {
+            _controller.addOverlay(
+                NPolylineOverlay(id: _baechaLineId, coords: lineCoords));
+          }
+        }
       })
       ..on('hello', (data) {
         debugPrint('hello');
@@ -273,6 +274,9 @@ class _MapPageState extends ConsumerState<MapPage> {
               if (_shouldReportLocation) {
                 _reportLocation(location);
               }
+              if (_baechaTarget != null) {
+                _updateBaechaLine();
+              }
             },
             onCameraChange: () {
               _cancelReturnToCurrentLocation();
@@ -302,6 +306,26 @@ class _MapPageState extends ConsumerState<MapPage> {
                       _shouldReportLocation = value;
                     }),
                   ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      ElevatedButton(
+                        onPressed: () {
+                          _socket.emit('request_baecha');
+                          ref
+                              .read(appStateProvider.notifier)
+                              .setTaxiState(TaxiState.waiting);
+                        },
+                        child: const Text("Request baecha"),
+                      ),
+                      Offstage(
+                        offstage: ref.watch(appStateProvider).taxiState !=
+                            TaxiState.waiting,
+                        child: const CircularProgressIndicator(),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -327,19 +351,28 @@ class _MapPageState extends ConsumerState<MapPage> {
                           onPressed: () {
                             ref
                                 .read(appStateProvider.notifier)
-                                .setTaxiState(TaxiState.WAITING);
-                            _reportState(TaxiState.WAITING);
+                                .setTaxiState(TaxiState.idle);
+                            _forceSetState(TaxiState.idle);
                           },
-                          child: const Text('state WAITING'),
+                          child: const Text('Force set IDLE'),
                         ),
                         ElevatedButton(
                           onPressed: () {
                             ref
                                 .read(appStateProvider.notifier)
-                                .setTaxiState(TaxiState.RUNNING);
-                            _reportState(TaxiState.RUNNING);
+                                .setTaxiState(TaxiState.waiting);
+                            _forceSetState(TaxiState.waiting);
                           },
-                          child: const Text('state RUNNING'),
+                          child: const Text('Force set WAITING'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () {
+                            ref
+                                .read(appStateProvider.notifier)
+                                .setTaxiState(TaxiState.running);
+                            _forceSetState(TaxiState.running);
+                          },
+                          child: const Text('Force set RUNNING'),
                         ),
                       ],
                     ),
@@ -360,7 +393,7 @@ class _MapPageState extends ConsumerState<MapPage> {
                     onPressed: () {
                       ref
                           .read(appStateProvider.notifier)
-                          .setTaxiState(TaxiState.RUNNING);
+                          .setTaxiState(TaxiState.running);
                     },
                     child: const Text('픽업 완료'),
                   ),
