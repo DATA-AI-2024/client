@@ -7,7 +7,7 @@ import 'package:daejeon_taxi/presentation/widget/x_map/x_map.dart';
 import 'package:daejeon_taxi/res/client_event.dart';
 import 'package:daejeon_taxi/res/consts.dart';
 import 'package:daejeon_taxi/res/taxi_state.dart';
-import 'package:daejeon_taxi/utils/extension/latlng.dart';
+import 'package:daejeon_taxi/utils/latlng.dart';
 import 'package:daejeon_taxi/utils/throttler.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_naver_map/flutter_naver_map.dart';

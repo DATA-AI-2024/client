@@ -1,10 +1,11 @@
 import 'dart:io';
 
-import 'package:daejeon_taxi/presentation/widget/x_map/src/inner_fleaflet_map.dart';
+import 'package:daejeon_taxi/presentation/widget/x_map/src/flutter_map/inner_fleaflet_map.dart';
 import 'package:daejeon_taxi/presentation/widget/x_map/src/naver_map/inner_naver_map.dart';
 import 'package:daejeon_taxi/presentation/widget/x_map/src/x_map_controller.dart';
 import 'package:daejeon_taxi/res/consts.dart';
 import 'package:daejeon_taxi/utils/throttler.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_naver_map/flutter_naver_map.dart';
 import 'package:provider/provider.dart';
@@ -82,7 +83,10 @@ class _XMapState extends State<XMap> {
       create: (context) => _controller,
       child: Stack(
         children: [
-          widget.mode == XMapMode.naver || Platform.isAndroid || Platform.isIOS
+          !kIsWeb &&
+                  (widget.mode == XMapMode.naver ||
+                      Platform.isAndroid ||
+                      Platform.isIOS)
               ? InnerNaverMap(
                   controller: _controller,
                   onMapReady: widget.onMapReady,

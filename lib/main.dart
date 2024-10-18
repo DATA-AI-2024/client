@@ -2,13 +2,14 @@ import 'dart:io';
 
 import 'package:daejeon_taxi/presentation/view/splash_page.dart';
 import 'package:daejeon_taxi/res/key.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_naver_map/flutter_naver_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  if (Platform.isAndroid || Platform.isIOS) {
+  if (!kIsWeb && (Platform.isAndroid || Platform.isIOS)) {
     await NaverMapSdk.instance.initialize(
       clientId: naverMapClientId,
       onAuthFailed: (ex) {
