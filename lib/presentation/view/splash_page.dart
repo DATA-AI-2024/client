@@ -1,26 +1,112 @@
+import 'package:daejeon_taxi/domain/environment/app_state_provider.dart';
 import 'package:daejeon_taxi/presentation/view/map_page.dart';
+import 'package:daejeon_taxi/res/consts.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-class SplashPage extends StatefulWidget {
+class CustomTooltip extends StatelessWidget {
+  final Widget child;
+  final double arrowWidth;
+  final double arrowHeight;
+
+  const CustomTooltip({
+    super.key,
+    required this.child,
+    this.arrowWidth = 20,
+    this.arrowHeight = 10,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(color: Colors.red, child: _buildTooltipBubble());
+  }
+
+  Widget _buildTooltipBubble() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Container(
+          padding: EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: Colors.black.withOpacity(0.5),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: child,
+        ),
+        SizedBox(
+          height: arrowHeight*2,
+          child: CustomPaint(
+            painter: ArrowPainter(
+              width: arrowWidth,
+              height: arrowHeight,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class ArrowPainter extends CustomPainter {
+  final double width;
+  final double height;
+
+  ArrowPainter({required this.width, required this.height});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    var paint = Paint()
+      ..color = Colors.black.withOpacity(0.5)
+      ..style = PaintingStyle.fill;
+
+    var path = Path()
+      ..moveTo(10, 0)
+      ..arcToPoint(Offset(0, 10), radius: Radius.circular(1))
+      ..lineTo(0, 10)
+      ..arcToPoint(Offset(20, 10), radius: Radius.circular(1))
+      ..lineTo(20, 10)
+      ..arcToPoint(Offset(10, 0), radius: Radius.circular(1))
+    ;
+
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
+}
+
+class SplashPage extends ConsumerStatefulWidget {
   const SplashPage({super.key});
 
   @override
-  State<SplashPage> createState() => _SplashPageState();
+  ConsumerState<SplashPage> createState() => _SplashPageState();
 }
 
-class _SplashPageState extends State<SplashPage> {
+class _SplashPageState extends ConsumerState<SplashPage> {
   bool? _loadSuccess;
 
   PermissionStatus? _status;
+
+  late final TextEditingController _urlController;
 
   @override
   void initState() {
     super.initState();
 
+    _urlController =
+        TextEditingController(text: ref.read(appStateProvider).socketUrl);
+
     WidgetsBinding.instance.addPostFrameCallback((timestamp) {
       checkPerm();
     });
+  }
+
+  @override
+  void dispose() {
+    _urlController.dispose();
+
+    super.dispose();
   }
 
   void checkPerm() async {
@@ -56,6 +142,7 @@ class _SplashPageState extends State<SplashPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            CustomTooltip(child: Text("MsdfsdfsdSG")),
             ElevatedButton(
               onPressed: checkPerm,
               child: const Text('Check perm'),
@@ -89,6 +176,30 @@ class _SplashPageState extends State<SplashPage> {
                 ],
               ),
             ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _urlController,
+                      onChanged: (value) {
+                        ref.read(appStateProvider.notifier).setSocketUrl(value);
+                      },
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () {
+                      _urlController.text = WS_CLIENT;
+                      ref
+                          .read(appStateProvider.notifier)
+                          .setSocketUrl(WS_CLIENT);
+                    },
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              ),
+            )
           ],
         ),
       ),

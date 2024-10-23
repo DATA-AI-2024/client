@@ -5,7 +5,6 @@ import 'package:daejeon_taxi/domain/environment/app_state_provider.dart';
 import 'package:daejeon_taxi/presentation/component/labeled_checkbox.dart';
 import 'package:daejeon_taxi/presentation/widget/x_map/x_map.dart';
 import 'package:daejeon_taxi/res/client_event.dart';
-import 'package:daejeon_taxi/res/consts.dart';
 import 'package:daejeon_taxi/res/taxi_state.dart';
 import 'package:daejeon_taxi/utils/extension/latlng.dart';
 import 'package:daejeon_taxi/utils/throttler.dart';
@@ -107,7 +106,7 @@ class _MapPageState extends ConsumerState<MapPage> {
       _baechaLine!.setCoords(lineCoords);
     } else {
       _controller
-          .addOverlay(NPolylineOverlay(id: _baechaLineId, coords: lineCoords));
+          .addOverlay(NPolylineOverlay(id: _baechaLineId, coords: lineCoords, color: Colors.red));
     }
   }
 
@@ -168,8 +167,9 @@ class _MapPageState extends ConsumerState<MapPage> {
 
     _controller = XMapController();
 
+    final socketUrl = ref.read(appStateProvider).socketUrl;
     final socketOption = OptionBuilder().setTransports(['websocket']).build();
-      _socket = io(WS_CLIENT, socketOption);
+    _socket = io(socketUrl, socketOption);
 
     _socket.onConnect((data) {
       _reportLocation();
@@ -237,7 +237,7 @@ class _MapPageState extends ConsumerState<MapPage> {
             _baechaLine!.setCoords(lineCoords);
           } else {
             _controller.addOverlay(
-                NPolylineOverlay(id: _baechaLineId, coords: lineCoords));
+                NPolylineOverlay(id: _baechaLineId, coords: lineCoords, color: Colors.red));
           }
         }
       })
