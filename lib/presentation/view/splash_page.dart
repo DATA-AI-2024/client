@@ -35,7 +35,7 @@ class CustomTooltip extends StatelessWidget {
           child: child,
         ),
         SizedBox(
-          height: arrowHeight*2,
+          height: arrowHeight * 2,
           child: CustomPaint(
             painter: ArrowPainter(
               width: arrowWidth,
@@ -66,8 +66,7 @@ class ArrowPainter extends CustomPainter {
       ..lineTo(0, 10)
       ..arcToPoint(Offset(20, 10), radius: Radius.circular(1))
       ..lineTo(20, 10)
-      ..arcToPoint(Offset(10, 0), radius: Radius.circular(1))
-    ;
+      ..arcToPoint(Offset(10, 0), radius: Radius.circular(1));
 
     canvas.drawPath(path, paint);
   }
@@ -142,7 +141,6 @@ class _SplashPageState extends ConsumerState<SplashPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            CustomTooltip(child: Text("MsdfsdfsdSG")),
             ElevatedButton(
               onPressed: checkPerm,
               child: const Text('Check perm'),

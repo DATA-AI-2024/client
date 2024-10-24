@@ -7,12 +7,27 @@ import 'package:daejeon_taxi/presentation/widget/x_map/x_map.dart';
 import 'package:daejeon_taxi/res/client_event.dart';
 import 'package:daejeon_taxi/res/taxi_state.dart';
 import 'package:daejeon_taxi/utils/extension/latlng.dart';
+import 'package:daejeon_taxi/utils/latlng.dart';
 import 'package:daejeon_taxi/utils/throttler.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_naver_map/flutter_naver_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:socket_io_client/socket_io_client.dart';
+
+class BaechaTarget {
+  final NLatLng coords;
+  final String clusterName;
+  final double demand;
+  final String reason;
+
+  BaechaTarget({
+    required this.coords,
+    required this.clusterName,
+    required this.demand,
+    required this.reason,
+  });
+}
 
 class MapPage extends ConsumerStatefulWidget {
   const MapPage({super.key});
@@ -37,7 +52,7 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   static const _markerMockId = 'mock';
 
-  NLatLng? _baechaTarget;
+  BaechaTarget? _baechaTarget;
 
   /// 서버에서 배차를 제안한 타겟, 거절 시 배차 풀에 재등록
   LatLng? _suggestedTarget;
@@ -49,8 +64,10 @@ class _MapPageState extends ConsumerState<MapPage> {
 
   NPolylineOverlay? _baechaLine;
 
+  NAddableOverlay? _baechaTooltipOverlay;
+
   /// in meters
-  static const double _baechaTargetRadiusInMeters = 100;
+  static const double _baechaTargetRadiusInMeters = 500;
 
   LatLng? _targetLocation;
 
@@ -101,12 +118,15 @@ class _MapPageState extends ConsumerState<MapPage> {
   void _updateBaechaLine() {
     if (_controller.getCurrentLocation() == null) return;
 
-    final lineCoords = [_controller.getCurrentLocation()!, _baechaTarget!];
+    final lineCoords = [
+      _controller.getCurrentLocation()!,
+      _baechaTarget!.coords
+    ];
     if (_baechaLine != null) {
       _baechaLine!.setCoords(lineCoords);
     } else {
-      _controller
-          .addOverlay(NPolylineOverlay(id: _baechaLineId, coords: lineCoords, color: Colors.red));
+      _controller.addOverlay(NPolylineOverlay(
+          id: _baechaLineId, coords: lineCoords, color: Colors.red));
     }
   }
 
@@ -207,38 +227,98 @@ class _MapPageState extends ConsumerState<MapPage> {
 
         ref.read(appStateProvider.notifier).setTaxiState(TaxiState.running);
 
-        _baechaTarget = NLatLng(data['lat'], data['lng']);
+        _baechaTarget = BaechaTarget(
+            coords: NLatLng(data['lat'], data['lng']),
+            clusterName: data['cluster_name'],
+            demand: data['demand'],
+            reason: data['reason']);
 
         // 배차된 클러스터에 원 오버레이 표시
         if (_baechaTargetOverlay != null) {
           // 배차된 클러스터 오버레이 타입은 Marker/Circle 중 하나라고 가정
           if (_baechaTargetOverlay is NMarker) {
-            (_baechaTargetOverlay as NMarker).setPosition(_baechaTarget!);
+            (_baechaTargetOverlay as NMarker)
+                .setPosition(_baechaTarget!.coords);
           } else if (_baechaTargetOverlay is NCircleOverlay) {
-            (_baechaTargetOverlay as NCircleOverlay).setCenter(_baechaTarget!);
+            (_baechaTargetOverlay as NCircleOverlay)
+                .setCenter(_baechaTarget!.coords);
           }
         } else {
           _baechaTargetOverlay = NCircleOverlay(
             id: _baechaTargetOverlayId,
-            center: _baechaTarget!,
+            center: _baechaTarget!.coords,
             radius: _baechaTargetRadiusInMeters,
             color: Colors.purpleAccent.withOpacity(0.3),
           );
         }
         _controller.addOverlay(_baechaTargetOverlay!);
 
-        // 배차된 클러스터까지의 직선거리 오버레이 표시
         if (_controller.getCurrentLocation() != null) {
+          // 배차된 클러스터까지의 직선거리 오버레이 표시
           final lineCoords = [
             _controller.getCurrentLocation()!,
-            _baechaTarget!
+            _baechaTarget!.coords
           ];
           if (_baechaLine != null) {
             _baechaLine!.setCoords(lineCoords);
           } else {
-            _controller.addOverlay(
-                NPolylineOverlay(id: _baechaLineId, coords: lineCoords, color: Colors.red));
+            _controller.addOverlay(NPolylineOverlay(
+                id: _baechaLineId, coords: lineCoords, color: Colors.red));
           }
+
+          // 배차된 클러스터 위에 예상 수요량, 배차 이유 등 정보 표시
+          NOverlayImage.fromWidget(
+            widget: Container(
+              padding: const EdgeInsets.all(8),
+              child: Container(
+                clipBehavior: Clip.none,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(4),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.grey.withOpacity(0.5),
+                      spreadRadius: 2,
+                      blurRadius: 4,
+                      offset: const Offset(0, 2), // changes position of shadow
+                    ),
+                  ],
+                ),
+                child: DefaultTextStyle.merge(
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontSize: 12,
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text('Cluster ${_baechaTarget!.clusterName}'),
+                      Text('예상 수요: ${_baechaTarget!.demand.toInt()}'),
+                      Text(_baechaTarget!.reason),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            size: const Size(160, 90),
+            context: context,
+          ).then((overlay) {
+            if (_baechaTooltipOverlay != null) {
+              _controller.removeOverlay(_baechaTooltipOverlay!);
+            }
+            _baechaTooltipOverlay = NMarker(
+              id: "icon_test",
+              position: NLatLng(
+                addMetersToLongitude(_baechaTarget!.coords.latitude,
+                    _baechaTargetRadiusInMeters),
+                _baechaTarget!.coords.longitude,
+              ),
+              icon: overlay,
+            );
+            _controller.addOverlay(_baechaTooltipOverlay!);
+            // TODO: 상황에 따라 필요 시 툴팁 제거
+          });
         }
       })
       ..on('hello', (data) {
