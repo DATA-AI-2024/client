@@ -181,6 +181,12 @@ class _MapPageState extends ConsumerState<MapPage> {
   }
   */
 
+  void _showSnackBar(SnackBar snackBar) {
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(snackBar);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -217,13 +223,22 @@ class _MapPageState extends ConsumerState<MapPage> {
 
         debugPrint('received baecha $data');
 
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: const Text('배차가 완료되었습니다.'),
-          action: SnackBarAction(
-            label: '확인',
-            onPressed: () {},
+        _showSnackBar(
+          SnackBar(
+            content: const Text('배차가 완료되었습니다.'),
+            action: SnackBarAction(
+              label: '확인',
+              onPressed: () {},
+            ),
+            padding: const EdgeInsets.only(
+              top: 8,
+              bottom: 8,
+              left: 24,
+              right: 16,
+            ),
+            behavior: SnackBarBehavior.floating,
           ),
-        ));
+        );
 
         ref.read(appStateProvider.notifier).setTaxiState(TaxiState.running);
 
