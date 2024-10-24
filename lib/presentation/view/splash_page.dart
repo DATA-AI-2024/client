@@ -92,19 +92,25 @@ class _SplashPageState extends ConsumerState<SplashPage> {
 
   SharedPreferences? prefs;
 
+  void _setSocketUrl() {
+    ref.read(appStateProvider.notifier).setSocketUrl(_urlController.text);
+  }
+
   @override
   void initState() {
     super.initState();
 
     _urlController =
-        TextEditingController(text: ref.read(appStateProvider).socketUrl);
+        TextEditingController(text: ref.read(appStateProvider).socketUrl)
+          ..addListener(_setSocketUrl);
 
     WidgetsBinding.instance.addPostFrameCallback((timestamp) async {
       checkPerm();
 
       prefs = await SharedPreferences.getInstance();
       ref.listenManual(appStateProvider, (previous, next) {
-        if (previous?.socketUrl != next.socketUrl) {
+        if (previous?.socketUrl != next.socketUrl &&
+            next.socketUrl != _urlController.text) {
           _urlController.text = next.socketUrl;
         }
       });
@@ -113,6 +119,7 @@ class _SplashPageState extends ConsumerState<SplashPage> {
 
   @override
   void dispose() {
+    _urlController.removeListener(_setSocketUrl);
     _urlController.dispose();
 
     super.dispose();
@@ -191,17 +198,11 @@ class _SplashPageState extends ConsumerState<SplashPage> {
                   Expanded(
                     child: TextField(
                       controller: _urlController,
-                      onChanged: (value) {
-                        ref.read(appStateProvider.notifier).setSocketUrl(value);
-                      },
                     ),
                   ),
                   IconButton(
                     onPressed: () {
                       _urlController.text = WS_CLIENT;
-                      ref
-                          .read(appStateProvider.notifier)
-                          .setSocketUrl(WS_CLIENT);
                     },
                     icon: const Icon(Icons.refresh),
                   ),
