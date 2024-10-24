@@ -358,10 +358,10 @@ class _MapPageState extends ConsumerState<MapPage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        '${_baechaTarget!.clusterName}',
+                        '${_baechaTarget!.clusterName} 주변',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
-                      Text('예상 수요: ${_baechaTarget!.demand.toInt()}'),
+                      Text('예상 수요: ${_baechaTarget!.demand.toInt()}명'),
                       Text(_baechaTarget!.reason),
                     ],
                   ),
