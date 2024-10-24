@@ -6,13 +6,11 @@ import 'package:daejeon_taxi/presentation/component/labeled_checkbox.dart';
 import 'package:daejeon_taxi/presentation/widget/x_map/x_map.dart';
 import 'package:daejeon_taxi/res/client_event.dart';
 import 'package:daejeon_taxi/res/taxi_state.dart';
-import 'package:daejeon_taxi/utils/extension/latlng.dart';
 import 'package:daejeon_taxi/utils/latlng.dart';
 import 'package:daejeon_taxi/utils/throttler.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_naver_map/flutter_naver_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:socket_io_client/socket_io_client.dart';
 
 class BaechaTarget {
@@ -48,14 +46,14 @@ class _MapPageState extends ConsumerState<MapPage> {
   /// 서버에 위치를 실시간 보고
   bool _shouldReportLocation = true;
 
-  NMarker? _mockMarker;
+  // NMarker? _mockMarker;
 
-  static const _markerMockId = 'mock';
+  // static const _markerMockId = 'mock';
 
   BaechaTarget? _baechaTarget;
 
   /// 서버에서 배차를 제안한 타겟, 거절 시 배차 풀에 재등록
-  LatLng? _suggestedTarget;
+  // LatLng? _suggestedTarget;
 
   static const _baechaTargetOverlayId = 'target';
 
@@ -69,16 +67,16 @@ class _MapPageState extends ConsumerState<MapPage> {
   /// in meters
   static const double _baechaTargetRadiusInMeters = 500;
 
-  LatLng? _targetLocation;
+  // LatLng? _targetLocation;
 
   /// 현재 위치
-  LatLng? _currentLocation;
+  // LatLng? _currentLocation;
 
   /// 타겟 범위 내에 도착하여 픽업 가능 여부
-  bool? get _nearTarget => (_currentLocation == null || _targetLocation == null)
-      ? null
-      : _currentLocation!.distanceTo(_targetLocation!) <=
-          _baechaTargetRadiusInMeters;
+  // bool? get _nearTarget => (_currentLocation == null || _targetLocation == null)
+  //     ? null
+  //     : _currentLocation!.distanceTo(_targetLocation!) <=
+  //         _baechaTargetRadiusInMeters;
 
   void _reportLocation([NLatLng? location]) {
     _reportThrottler.run(() {
@@ -100,20 +98,53 @@ class _MapPageState extends ConsumerState<MapPage> {
     _socket.emit('state', state.name);
   }
 
-  void _onTargetSuggested(double lat, double lng) {
-    setState(() {
-      // _suggestedTarget = NLatLng(lat, lng);
-    });
+  void _requestBaecha() {
+    _socket.emit('request_baecha');
+    ref.read(appStateProvider.notifier).setTaxiState(TaxiState.waiting);
   }
 
-  void _rejectTarget() {
-    assert(_suggestedTarget != null);
-
-    _socket.emit('reject');
-    setState(() {
-      _suggestedTarget = null;
-    });
+  void _cancelBaecha() {
+    _socket.emit('cancel_baecha');
+    ref.read(appStateProvider.notifier).setTaxiState(TaxiState.idle);
+    _clearBaechaTarget();
   }
+
+  void _pickupDone() {
+    _socket.emit('pickup_done');
+    ref.read(appStateProvider.notifier).setTaxiState(TaxiState.running);
+    _clearBaechaTarget();
+  }
+
+  void _clearBaechaTarget() {
+    _baechaTarget = null;
+    if (_baechaTargetOverlay != null) {
+      _controller.removeOverlay(_baechaTargetOverlay!);
+      _baechaTargetOverlay = null;
+    }
+    if (_baechaTooltipOverlay != null) {
+      _controller.removeOverlay(_baechaTooltipOverlay!);
+      _baechaTooltipOverlay = null;
+    }
+    if (_baechaLine != null) {
+      _controller.removeOverlay(_baechaLine!);
+      _baechaLine = null;
+    }
+  }
+
+  // void _onTargetSuggested(double lat, double lng) {
+  //   setState(() {
+  //     // _suggestedTarget = NLatLng(lat, lng);
+  //   });
+  // }
+
+  // void _rejectTarget() {
+  //   assert(_suggestedTarget != null);
+  //
+  //   _socket.emit('reject');
+  //   setState(() {
+  //     _suggestedTarget = null;
+  //   });
+  // }
 
   void _updateBaechaLine() {
     if (_controller.getCurrentLocation() == null) return;
@@ -125,8 +156,9 @@ class _MapPageState extends ConsumerState<MapPage> {
     if (_baechaLine != null) {
       _baechaLine!.setCoords(lineCoords);
     } else {
-      _controller.addOverlay(NPolylineOverlay(
-          id: _baechaLineId, coords: lineCoords, color: Colors.red));
+      _baechaLine = NPolylineOverlay(
+          id: _baechaLineId, coords: lineCoords, color: Colors.red);
+      _controller.addOverlay(_baechaLine!);
     }
   }
 
@@ -223,6 +255,13 @@ class _MapPageState extends ConsumerState<MapPage> {
 
         debugPrint('received baecha $data');
 
+        // 택시가 배차 대기중이 아니면 배차 정보 무시
+        // 추후 서버단에서 배차 대기중인 택시에게만 메시지 보내도록 수정
+        if (ref.read(appStateProvider).taxiState != TaxiState.waiting) {
+          debugPrint('but taxi is not waiting, so ignore');
+          return;
+        }
+
         _showSnackBar(
           SnackBar(
             content: const Text('배차가 완료되었습니다.'),
@@ -277,8 +316,9 @@ class _MapPageState extends ConsumerState<MapPage> {
           if (_baechaLine != null) {
             _baechaLine!.setCoords(lineCoords);
           } else {
-            _controller.addOverlay(NPolylineOverlay(
-                id: _baechaLineId, coords: lineCoords, color: Colors.red));
+            _baechaLine = NPolylineOverlay(
+                id: _baechaLineId, coords: lineCoords, color: Colors.red);
+            _controller.addOverlay(_baechaLine!);
           }
 
           // 배차된 클러스터 위에 예상 수요량, 배차 이유 등 정보 표시
@@ -351,152 +391,232 @@ class _MapPageState extends ConsumerState<MapPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        title: const Text('App'),
-      ),
-      body: Stack(
-        children: [
-          XMap(
-            controller: _controller,
-            onMapReady: () {
-              setState(() {
-                isMapReady = true;
-              });
-            },
-            defaultLocationTrackingMode: NLocationTrackingMode.face,
-            onLocationChange: (location) {
-              if (_shouldReportLocation) {
-                _reportLocation(location);
-              }
-              if (_baechaTarget != null) {
-                _updateBaechaLine();
-              }
-            },
-            onCameraChange: () {
-              _cancelReturnToCurrentLocation();
-            },
-            onCameraIdle: () {
-              _reserveReturnToCurrentLocation();
-            },
-          ),
-          if (isMapReady)
-            Container(
-              color: Colors.white,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  LabeledCheckbox(
-                    label: 'Mock location',
-                    value: _controller.getShouldMockLocation(),
-                    onChanged: (value) => setState(() {
-                      _controller.setShouldMockLocation(value);
-                    }),
-                  ),
-                  LabeledCheckbox(
-                    label: 'Report location',
-                    value: _shouldReportLocation,
-                    onChanged: (value) => setState(() {
-                      _shouldReportLocation = value;
-                    }),
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.center,
+      body: SafeArea(
+        child: Stack(
+          children: [
+            XMap(
+              controller: _controller,
+              onMapReady: () {
+                setState(() {
+                  isMapReady = true;
+                });
+                _controller.setShouldMockLocation(true);
+              },
+              defaultLocationTrackingMode: NLocationTrackingMode.face,
+              onLocationChange: (location) {
+                if (_shouldReportLocation) {
+                  _reportLocation(location);
+                }
+                if (_baechaTarget != null) {
+                  _updateBaechaLine();
+                }
+              },
+              onCameraChange: () {
+                _cancelReturnToCurrentLocation();
+              },
+              onCameraIdle: () {
+                _reserveReturnToCurrentLocation();
+              },
+            ),
+            if (isMapReady)
+              Container(
+                color: Colors.white,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    LabeledCheckbox(
+                      label: 'Show Debug UI',
+                      value: ref.watch(appStateProvider).showDebugUi,
+                      onChanged: (value) => setState(() {
+                        ref
+                            .read(appStateProvider.notifier)
+                            .setShowDebugUi(value);
+                      }),
+                    ),
+                    Offstage(
+                      offstage: !ref.watch(appStateProvider).showDebugUi,
+                      child: Column(
+                        children: [
+                          LabeledCheckbox(
+                            label: 'Mock location',
+                            value: _controller.getShouldMockLocation(),
+                            onChanged: (value) => setState(() {
+                              _controller.setShouldMockLocation(value);
+                            }),
+                          ),
+                          LabeledCheckbox(
+                            label: 'Report location',
+                            value: _shouldReportLocation,
+                            onChanged: (value) => setState(() {
+                              _shouldReportLocation = value;
+                            }),
+                          ),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              ElevatedButton(
+                                onPressed: () {
+                                  _requestBaecha();
+                                },
+                                child: const Text("Request baecha"),
+                              ),
+                              Offstage(
+                                offstage:
+                                    ref.watch(appStateProvider).taxiState !=
+                                        TaxiState.waiting,
+                                child: const CircularProgressIndicator(),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    )
+                  ],
+                ),
+              ),
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Offstage(
+                offstage: !ref.watch(appStateProvider).showDebugUi,
+                child: Container(
+                  color: Colors.white,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      ElevatedButton(
-                        onPressed: () {
-                          _socket.emit('request_baecha');
-                          ref
-                              .read(appStateProvider.notifier)
-                              .setTaxiState(TaxiState.waiting);
-                        },
-                        child: const Text("Request baecha"),
+                      Text(ref.watch(appStateProvider).taxiState.name),
+                      Offstage(
+                        offstage: _connected,
+                        child: const Text('disconnected'),
                       ),
                       Offstage(
-                        offstage: ref.watch(appStateProvider).taxiState !=
-                            TaxiState.waiting,
-                        child: const CircularProgressIndicator(),
+                        offstage: !_connected,
+                        child: Column(
+                          children: [
+                            const Text('connected'),
+                            ElevatedButton(
+                              onPressed: () {
+                                ref
+                                    .read(appStateProvider.notifier)
+                                    .setTaxiState(TaxiState.idle);
+                                _forceSetState(TaxiState.idle);
+                              },
+                              child: const Text('Force set IDLE'),
+                            ),
+                            ElevatedButton(
+                              onPressed: () {
+                                ref
+                                    .read(appStateProvider.notifier)
+                                    .setTaxiState(TaxiState.waiting);
+                                _forceSetState(TaxiState.waiting);
+                              },
+                              child: const Text('Force set WAITING'),
+                            ),
+                            ElevatedButton(
+                              onPressed: () {
+                                ref
+                                    .read(appStateProvider.notifier)
+                                    .setTaxiState(TaxiState.running);
+                                _forceSetState(TaxiState.running);
+                              },
+                              child: const Text('Force set RUNNING'),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                ],
+                ),
               ),
             ),
-          Positioned(
-            top: 0,
-            right: 0,
-            child: Container(
-              color: Colors.white,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Text(ref.watch(appStateProvider).taxiState.name),
-                  Offstage(
-                    offstage: _connected,
-                    child: const Text('disconnected'),
-                  ),
-                  Offstage(
-                    offstage: !_connected,
-                    child: Column(
-                      children: [
-                        const Text('connected'),
-                        ElevatedButton(
-                          onPressed: () {
-                            ref
-                                .read(appStateProvider.notifier)
-                                .setTaxiState(TaxiState.idle);
-                            _forceSetState(TaxiState.idle);
-                          },
-                          child: const Text('Force set IDLE'),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Offstage(
+                offstage: _baechaTarget != null,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 64),
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        shape: const RoundedRectangleBorder(
+                          borderRadius: BorderRadius.all(
+                            Radius.circular(8),
+                          ),
                         ),
-                        ElevatedButton(
-                          onPressed: () {
-                            ref
-                                .read(appStateProvider.notifier)
-                                .setTaxiState(TaxiState.waiting);
-                            _forceSetState(TaxiState.waiting);
-                          },
-                          child: const Text('Force set WAITING'),
-                        ),
-                        ElevatedButton(
-                          onPressed: () {
-                            ref
-                                .read(appStateProvider.notifier)
-                                .setTaxiState(TaxiState.running);
-                            _forceSetState(TaxiState.running);
-                          },
-                          child: const Text('Force set RUNNING'),
-                        ),
-                      ],
+                      ),
+                      onPressed: _requestBaecha,
+                      child: const Text(
+                        "배차 요청",
+                        style: TextStyle(fontSize: 18),
+                      ),
                     ),
                   ),
-                ],
+                ),
               ),
             ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: Offstage(
-              offstage: _nearTarget != true,
-              child: Row(
-                children: [
-                  ElevatedButton(
-                    onPressed: () {
-                      ref
-                          .read(appStateProvider.notifier)
-                          .setTaxiState(TaxiState.running);
-                    },
-                    child: const Text('픽업 완료'),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Offstage(
+                offstage: _baechaTarget == null,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.max,
+                    children: [
+                      Expanded(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 64),
+                          child: OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              shape: const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.all(
+                                  Radius.circular(8),
+                                ),
+                              ),
+                            ),
+                            onPressed: _cancelBaecha,
+                            child: const Text(
+                              "배차 취소",
+                              style: TextStyle(fontSize: 18),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(minHeight: 64),
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
+                              shape: const RoundedRectangleBorder(
+                                borderRadius: BorderRadius.all(
+                                  Radius.circular(8),
+                                ),
+                              ),
+                            ),
+                            onPressed: _pickupDone,
+                            child: const Text(
+                              "픽업 완료",
+                              style: TextStyle(fontSize: 18),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

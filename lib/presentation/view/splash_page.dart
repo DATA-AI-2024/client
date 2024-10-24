@@ -4,6 +4,7 @@ import 'package:daejeon_taxi/res/consts.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class CustomTooltip extends StatelessWidget {
   final Widget child;
@@ -89,6 +90,8 @@ class _SplashPageState extends ConsumerState<SplashPage> {
 
   late final TextEditingController _urlController;
 
+  SharedPreferences? prefs;
+
   @override
   void initState() {
     super.initState();
@@ -96,8 +99,15 @@ class _SplashPageState extends ConsumerState<SplashPage> {
     _urlController =
         TextEditingController(text: ref.read(appStateProvider).socketUrl);
 
-    WidgetsBinding.instance.addPostFrameCallback((timestamp) {
+    WidgetsBinding.instance.addPostFrameCallback((timestamp) async {
       checkPerm();
+
+      prefs = await SharedPreferences.getInstance();
+      ref.listenManual(appStateProvider, (previous, next) {
+        if (previous?.socketUrl != next.socketUrl) {
+          _urlController.text = next.socketUrl;
+        }
+      });
     });
   }
 

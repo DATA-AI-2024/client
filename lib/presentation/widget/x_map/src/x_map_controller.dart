@@ -9,7 +9,7 @@ class XMapController extends ChangeNotifier {
   final id = Random().nextInt(1000);
 
   /* Map properties */
-  bool shouldMockLocation = true;
+  bool shouldMockLocation = false;
 
   bool getShouldMockLocation() {
     return shouldMockLocation;
