@@ -156,10 +156,20 @@ class _MapPageState extends ConsumerState<MapPage> {
     if (_baechaLine != null) {
       _baechaLine!.setCoords(lineCoords);
     } else {
-      _baechaLine = NPolylineOverlay(
-          id: _baechaLineId, coords: lineCoords, color: Colors.red);
+      _baechaLine = _buildBaechaLine(lineCoords);
       _controller.addOverlay(_baechaLine!);
     }
+  }
+
+  NPolylineOverlay _buildBaechaLine(List<NLatLng> lineCoords) {
+    return NPolylineOverlay(
+      id: _baechaLineId,
+      coords: lineCoords,
+      lineCap: NLineCap.round,
+      pattern: [4, 2],
+      width: 4,
+      color: const Color.fromARGB(255, 0x3b, 0x62, 0x8b),
+    );
   }
 
   Timer? _returnTimer;
@@ -316,8 +326,7 @@ class _MapPageState extends ConsumerState<MapPage> {
           if (_baechaLine != null) {
             _baechaLine!.setCoords(lineCoords);
           } else {
-            _baechaLine = NPolylineOverlay(
-                id: _baechaLineId, coords: lineCoords, color: Colors.red);
+            _baechaLine = _buildBaechaLine(lineCoords);
             _controller.addOverlay(_baechaLine!);
           }
 
@@ -348,7 +357,10 @@ class _MapPageState extends ConsumerState<MapPage> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('Cluster ${_baechaTarget!.clusterName}'),
+                      Text(
+                        '${_baechaTarget!.clusterName}',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
                       Text('예상 수요: ${_baechaTarget!.demand.toInt()}'),
                       Text(_baechaTarget!.reason),
                     ],
