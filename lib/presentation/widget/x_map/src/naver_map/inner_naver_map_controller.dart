@@ -11,6 +11,8 @@ class InnerNaverMapController implements InnerMapController {
 
   NMarker? _mockLocationMarker;
 
+  bool _shouldSetMockMarker = false;
+
   static const _mockLocationMarkerId = 'MOCK_LOCATION_MARKER';
 
   InnerNaverMapController({
@@ -43,7 +45,12 @@ class InnerNaverMapController implements InnerMapController {
 
   @override
   void setMockLocationMarker() {
-    if (naverMapController == null || lastLocation == null) return;
+    if (naverMapController == null) return;
+
+    if (lastLocation == null) {
+      _shouldSetMockMarker = true;
+      return;
+    }
 
     if (_mockLocationMarker == null) {
       _mockLocationMarker = NMarker(
@@ -74,9 +81,20 @@ class InnerNaverMapController implements InnerMapController {
 
   /* Internal */
 
+  void onLocationFirstDetected(NLatLng location) {
+    if (_shouldSetMockMarker) {
+      _shouldSetMockMarker = false;
+      setMockLocationMarker();
+    }
+  }
+
   @internal
   void onLocationChange(NLatLng location) {
+    final isLocationFirstDetected = lastLocation == null;
     lastLocation = location;
+    if (isLocationFirstDetected) {
+      onLocationFirstDetected(location);
+    }
     _mockLocationMarker?.setPosition(location);
   }
 
